@@ -79,7 +79,11 @@ class HerdrClient:
         if not line:
             raise HerdrConnectionLost("empty response (connection closed)")
 
-        body = json.loads(line)
+        try:
+            body = json.loads(line)
+        except json.JSONDecodeError as e:
+            raise HerdrConnectionLost(f"unparseable response from herdr: {line!r}") from e
+
         if "error" in body:
             err = body["error"]
             if isinstance(err, dict):
@@ -94,12 +98,15 @@ class HerdrClient:
         except HerdrConnectionLost:
             pass
 
-        subprocess.Popen(
-            ["herdr", "server"],
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            start_new_session=True,
-        )
+        try:
+            subprocess.Popen(
+                ["herdr", "server"],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                start_new_session=True,
+            )
+        except OSError as e:
+            raise HerdrConnectionLost(f"could not start 'herdr server' ({e}) - is herdr installed and on PATH?") from e
         for _ in range(retries):
             time.sleep(delay)
             try:

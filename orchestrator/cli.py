@@ -18,12 +18,25 @@ def _client() -> HerdrClient:
 
 
 def cmd_run(args: argparse.Namespace) -> int:
-    client = _client()
-    client.ensure_server()
-
     tasks: list[dict] = []
     if args.tasks_file:
-        tasks.extend(json.loads(Path(args.tasks_file).read_text()))
+        try:
+            raw = json.loads(Path(args.tasks_file).read_text())
+        except FileNotFoundError:
+            print(f"orchestrate: tasks file not found: {args.tasks_file}", file=sys.stderr)
+            return 1
+        except json.JSONDecodeError as e:
+            print(f"orchestrate: {args.tasks_file} is not valid JSON: {e}", file=sys.stderr)
+            return 1
+        if not isinstance(raw, list):
+            print(f"orchestrate: {args.tasks_file} must contain a JSON array of tasks", file=sys.stderr)
+            return 1
+        for i, t in enumerate(raw):
+            missing = [k for k in ("repo", "name", "prompt") if k not in t]
+            if missing:
+                print(f"orchestrate: task {i} in {args.tasks_file} is missing {missing}", file=sys.stderr)
+                return 1
+        tasks.extend(raw)
     for spec in args.inline_tasks:
         parts = spec.split("::", 2)
         if len(parts) != 3:
@@ -31,6 +44,14 @@ def cmd_run(args: argparse.Namespace) -> int:
             return 1
         repo, name, prompt = parts
         tasks.append({"repo": repo, "name": name, "prompt": prompt})
+
+    if not tasks:
+        print("orchestrate: no tasks given (use -f tasks.json or repo::name::prompt)", file=sys.stderr)
+        return 1
+
+    if not args.dry_run:
+        client = _client()
+        client.ensure_server()
 
     failed = False
     for t in tasks:
